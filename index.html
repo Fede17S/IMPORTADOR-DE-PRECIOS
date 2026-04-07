@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Importar Productos — Leonidas</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0d1b2a;--blue:#1e56d0;--green:#059669;--red:#dc2626;--bg:#f1f5f9;--surface:#fff;--border:#e2e8f0;--text:#0f172a;--muted:#64748b}
+*{box-sizing:border-box;margin:0;padding:0;font-family:"Inter",sans-serif}
+body{background:var(--bg);color:var(--text);min-height:100vh;padding:24px}
+.container{max-width:720px;margin:0 auto}
+.header{background:var(--navy);border-radius:12px;padding:24px;margin-bottom:20px;color:#fff}
+.header h1{font-size:22px;font-weight:800;margin-bottom:4px}
+.header p{font-size:13px;color:#94a3b8}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px}
+.card h2{font-size:14px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px}
+label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;display:block}
+input,select{width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:8px;background:#f8fafc;color:var(--text);font-size:15px;outline:none;font-family:"Inter",sans-serif;margin-bottom:14px;-webkit-appearance:none}
+input:focus{border-color:var(--blue)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.btn{width:100%;padding:14px;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;font-family:"Inter",sans-serif;transition:filter .15s}
+.btn-blue{background:var(--blue);color:#fff}
+.btn-green{background:var(--green);color:#fff;margin-top:10px}
+.btn:active{filter:brightness(.9)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.progress-bar{width:100%;height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin:14px 0}
+.progress-fill{height:100%;background:var(--blue);border-radius:4px;transition:width .3s;width:0}
+.log{background:#0d1b2a;border-radius:8px;padding:14px;font-family:monospace;font-size:12px;color:#94a3b8;max-height:280px;overflow-y:auto;line-height:1.7;margin-top:14px}
+.log .ok{color:#34d399}.log .err{color:#f87171}.log .info{color:#60a5fa}
+.stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:14px}
+.stat{background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center}
+.stat-val{font-size:24px;font-weight:800;color:var(--navy)}
+.stat-lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-top:2px}
+.alert{padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:14px}
+.alert-blue{background:#eef2ff;color:#1e40af;border:1px solid #c7d2fe}
+.pct-note{font-size:12px;color:var(--muted);margin-top:-10px;margin-bottom:14px}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>📦 Importar Catálogo — Leonidas Distribuciones</h1>
+    <p>223 productos extraídos del PDF · Importación directa a Firebase</p>
+  </div>
+
+  <div class="card">
+    <h2>Configuración</h2>
+    <div class="alert alert-blue">
+      Los precios del PDF son el <b>costo mayorista</b> (lo que vos pagás a Leonidas). Los precios de venta se calculan con los márgenes de abajo.
+    </div>
+    <label>Empresa destino (código en Firebase)</label>
+    <input type="text" id="emp-key" placeholder="Ej: distrimar2024 — el código de la empresa">
+    <div class="row">
+      <div>
+        <label>Margen Lista Clientes</label>
+        <input type="number" id="pct-cli" value="20" min="0" max="200" step="0.1">
+        <div class="pct-note">+20% sobre el costo</div>
+      </div>
+      <div>
+        <label>Margen Lista Patagonia</label>
+        <input type="number" id="pct-pat" value="25" min="0" max="200" step="0.1">
+        <div class="pct-note">+25% sobre el costo</div>
+      </div>
+    </div>
+    <button class="btn btn-blue" onclick="iniciarImportacion()" id="btn-import">
+      🚀 Importar 223 productos a Firebase
+    </button>
+  </div>
+
+  <div class="card" id="card-progress" style="display:none">
+    <h2>Progreso</h2>
+    <div class="stats">
+      <div class="stat"><div class="stat-val" id="cnt-ok">0</div><div class="stat-lbl">Importados</div></div>
+      <div class="stat"><div class="stat-val" id="cnt-err">0</div><div class="stat-lbl">Errores</div></div>
+      <div class="stat"><div class="stat-val" id="cnt-total">223</div><div class="stat-lbl">Total</div></div>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="log" id="log"></div>
+    <button class="btn btn-green" id="btn-done" style="display:none" onclick="window.close()">
+      ✅ Importación completa — cerrar
+    </button>
+  </div>
+</div>
+
+<script>
+const FB = "https://distrimar-5e1a3-default-rtdb.firebaseio.com";
+
+const CSV = `id,nombre,precio_clientes,precio_patagonia,categoria
+3,DURACELL AA X12,1136.77,1184.14,Pilas
+4,DURACELL AAA X12,1136.77,1184.14,Pilas
+5,ENERGIZER AA X20,946.66,986.1,Pilas
+6,ENERGIZER AAA X20,946.66,986.1,Pilas
+127,DURACELL BATERIA 9V,7324.54,7629.72,Pilas
+261,ENERGIZER BATERIA 9V,6777.84,7060.25,Pilas
+126,DURACELL GRANDE (D),5696.87,5934.24,Pilas
+262,DURACELL MEDIANA (C),5696.87,5934.24,Pilas
+260,ENERGIZER GRANDE (D),6142.6,6398.54,Pilas
+259,ENERGIZER MEDIANA (C),5220.79,5438.32,Pilas
+365,PILA TIRA MONEDA 2032/2025/2016 X5,3120.0,3250.0,Pilas
+381,PILA A23 ENERGIZER X5,1950.08,2031.34,Pilas
+382,PILA A27 ENERGIZER X5,3562.01,3710.43,Pilas
+2,PRESTO GILLETE ULTRAGRIP PLATINO X24,1041.37,1084.76,Filos
+1,PRESTO GILLETE 3 FILOS X10,1712.22,1783.56,Filos
+25,VENUS X8,1899.59,1978.74,Filos
+209,GILLETTE ROJA SUPER THIM MEJORADA X5,1732.5,1804.69,Filos
+337,MAQUINA MACH 3,11850.0,12343.75,Filos
+69,MINORA PRO X20,769.61,801.68,Filos
+400,REPUESTO GILLETTE MACH3 X2 CARBONO,3508.6,3654.79,Filos
+61,REPUESTO GILLETTE MACH3 X2 CLASICO,3508.6,3654.79,Filos
+364,REPUESTO GILLETTE MACH3 X2 SENSITIVE,3663.04,3815.66,Filos
+215,REPUESTO GILLETTE MACH3 X4 SENSITIVE,3215.16,3349.12,Filos
+68,REPUESTO MACH 3 CLASICO X10,3628.8,3780.0,Filos
+509,REPUESTO GILLETTE MACH3 X4 CLASICO,3215.16,3349.12,Filos
+7,LA GOTITA X6,1829.63,1905.86,Pegamentos
+84,LA GOTITA GEL X6,2300.51,2396.36,Pegamentos
+8,ECCOLE 3G CHICO X6,2548.0,2654.16,Pegamentos
+104,ECCOLE 9G GRANDE X6,4969.25,5176.3,Pegamentos
+78,POXIRAN 23G X6,4128.88,4300.91,Pegamentos
+125,UNIPOX 25ML X6,2206.37,2298.3,Pegamentos
+145,POXILINA X6,5934.24,6181.5,Pegamentos
+128,FASTIX TRANSPARENTE 25G X6,5180.8,5396.66,Pegamentos
+212,POXIPOL AZUL X6,5946.97,6194.76,Pegamentos
+213,POXIPOL ROJO X6,5946.97,6194.76,Pegamentos
+268,ACEITE WD-40 X155G,7953.72,8285.12,Pegamentos
+172,VOLIGOMA X12 X30ML,1576.43,1642.11,Pegamentos
+480,UNIPOX EXTRAFUERTE 100ML X6,3618.53,3769.3,Pegamentos
+15,ENCENDEDOR MAXI BIC X12,1260.0,1312.5,Consumo Masivo
+16,ENCENDEDOR MINI BIC X12,977.59,1018.32,Consumo Masivo
+17,ENCENDEDOR CANDELA X25,266.4,277.5,Consumo Masivo
+153,ENCENDEDOR ALINTA X25,223.54,232.85,Consumo Masivo
+383,ENCENDEDOR CLIPPER MAXI X15,1226.33,1277.43,Consumo Masivo
+132,ENCENDEDOR ELECTRONICO GLOW CANDELA X20,626.15,652.24,Consumo Masivo
+144,CHISPERO MAGICLICK LLAMA X12,3786.0,3943.75,Consumo Masivo
+147,OCB PREMIUM NEGRO X25,904.74,942.44,Consumo Masivo
+40,TULIPAN BLANCO C/GEL X16,1890.36,1969.12,Consumo Masivo
+79,TULIPAN SURTIDOS EXHIBIDOR 24+2,1744.94,1817.65,Consumo Masivo
+20,PRIME X24,3535.5,3682.81,Consumo Masivo
+70,CEPILLO COLGATE 14X12,1125.0,1171.88,Consumo Masivo
+80,FOSFORO 3 PATITOS X222 X10,637.22,663.77,Consumo Masivo
+146,GLOBO LISO FIESTA LOCA X50,79.13,82.42,Consumo Masivo
+41,PAÑUELOS ELITE X6,276.05,287.55,Consumo Masivo
+418,BOMBITA FIESTA LOCA X100 PACK X30,899.1,936.56,Consumo Masivo
+178,BOMBITAS BOMBUCHA X30,1595.7,1662.19,Consumo Masivo
+42,BENGALITA PARA TORTA FUEGOLANDIA X4,292.36,304.54,Consumo Masivo
+276,AXE X150ML,3180.0,3312.5,Perfumeria
+443,AXE PREMIUM X150ML,3832.42,3992.1,Perfumeria
+405,DOVE AERO MEN X150ML,3944.04,4108.38,Perfumeria
+283,DOVE AERO WOMAN X150ML,3788.4,3946.25,Perfumeria
+385,CIEL AERO X123ML,4096.49,4267.17,Perfumeria
+291,REXONA AERO MEN X150ML,3636.36,3787.88,Perfumeria
+297,REXONA AERO WOMAN X150ML,3636.36,3787.88,Perfumeria
+308,KEVIN AERO X150ML,4416.0,4600.0,Perfumeria
+384,CHESTER ICE X150ML,4635.38,4828.53,Perfumeria
+453,PATRICH AERO X150ML,3061.5,3189.06,Perfumeria
+54,DENTRIFICO COLGATE X70G,2289.6,2385.0,Perfumeria
+307,DENTRIFICO KOLYNOS X70G,2325.6,2422.5,Perfumeria
+367,DOVE ROLL-ON MEN X50ML,3052.1,3179.28,Perfumeria
+347,DOVE ROLL-ON WOMAN X50ML,2885.8,3006.04,Perfumeria
+305,GEL LORD CHESELINE AZUL X150G,3498.96,3644.75,Perfumeria
+394,GILLETTE FOAMY X175G,8214.13,8556.39,Perfumeria
+393,GILLETTE FOAMY X312G,13669.26,14238.81,Perfumeria
+275,NIVEA CREMA LATA X60,3341.51,3480.74,Perfumeria
+274,ODORONO CREMA X60G,2256.0,2350.0,Perfumeria
+422,SEDAL SHAMPO X190ML,2880.28,3000.29,Perfumeria
+421,SEDAL ACONDICIONADOR X190ML,2880.28,3000.29,Perfumeria
+397,PANTENE ACONDICIONADOR SACHET X24,214.56,223.5,Perfumeria
+396,PANTENE SHAMPO SACHET X24,214.56,223.5,Perfumeria
+355,REXONA ROLL-ON MEN INVISIBLE X50ML,2146.27,2235.7,Perfumeria
+353,REXONA ROLL-ON MEN X50ML,2426.12,2527.21,Perfumeria
+354,REXONA ROLL-ON WOMAN X50ML,2425.55,2526.61,Perfumeria
+371,SEDAL SACHET SHAMPO/ACOND X24 X10ML,235.2,245.0,Perfumeria
+395,TALCO EFFICIENT AEROSOL ORIGINAL X153ML,4672.8,4867.5,Perfumeria
+273,TALCO EFFICIENT GRANDE X200 AZUL,4923.84,5129.0,Perfumeria
+272,TALCO EFFICIENT X100 AZUL,2832.0,2950.0,Perfumeria
+366,TAMPONES OB SUPER/MEDIUM/MINI X8,3885.0,4046.88,Perfumeria
+376,CREMA HINDS X75,2853.59,2972.49,Perfumeria
+378,CREMA HINDS X250,5981.63,6230.86,Perfumeria
+460,QUITAESMALTE CUTEX CHICO X50ML,2220.0,2312.5,Limpieza
+464,QUITAESMALTE CUTEX GRANDE X100ML,2865.0,2984.38,Limpieza
+486,GLADE REPUESTO AUTOMATICO X170ML,5064.8,5275.84,Limpieza
+491,GLADE AEROSOL X360ML,3030.55,3156.82,Limpieza
+501,MR MUSCULO DOYPACK X450ML,2194.1,2285.53,Limpieza
+505,PATO PASTILLA INOD X25GR,1622.05,1689.64,Limpieza
+136,ALFAJOR GUAYMALLEN ORO X24,662.95,690.58,Golosinas
+36,ALFAJOR GUAYMALLEN SIMPLE X40,270.0,281.25,Golosinas
+32,ALFAJOR GUAYMALLEN TRIPLE 70G X24,450.0,468.75,Golosinas
+263,ALFAJOR JORGITO X24,962.04,1002.12,Golosinas
+269,ALFAJOR ORENSE X12,937.5,976.56,Golosinas
+450,ALFAJOR RASTA MAICENA X14 X100G,1604.83,1671.7,Golosinas
+9,ALFAJOR RASTA X18,1106.0,1152.09,Golosinas
+46,ALFAJOR TRIPLE FANTOCHE X12 X85G,804.97,838.51,Golosinas
+452,ALFAJOR CAPITAN DEL ESPACIO X36,1298.0,1352.09,Golosinas
+49,BELDENT X20,647.14,674.1,Golosinas
+158,BOCADITO MARROC X60 GRANDE,737.68,768.41,Golosinas
+113,BON O BON BLANCO X30,448.46,467.15,Golosinas
+88,BON O BON CLASICO X30,448.46,467.15,Golosinas
+89,CADBURY YOGHURT FRUTILLA X29G X12,1958.6,2040.21,Golosinas
+137,CARAMELO MISKY MASTICABLE X800G,6692.4,6971.25,Golosinas
+411,CHUPETIN BABY DOLL X12 FRUTAL,820.74,854.94,Golosinas
+414,CHUPETIN MR POPS EVOLUTION X24,242.12,252.21,Golosinas
+135,CUBANITO FEELING MARROC X30,696.41,725.43,Golosinas
+81,DOS CORAZONES X20,1299.14,1353.27,Golosinas
+138,GOMITA MISKY EUCALIPTO X KILO,9160.31,9541.99,Golosinas
+139,GOMITA MISKY FANTASIA X KILO,9160.31,9541.99,Golosinas
+140,GOMITA MISKY JELLY ROLL X KILO,9160.31,9541.99,Golosinas
+63,GOMITAS MOGUL ACIDAS TUBO X12,515.7,537.19,Golosinas
+62,GOMITAS MOGUL TUBO X12,515.7,537.19,Golosinas
+163,HALLS X12,665.9,693.65,Golosinas
+55,HUEVO KINDER X12,2708.72,2821.59,Golosinas
+152,KINDER BARRITA CHOCOLATE X24,995.48,1036.96,Golosinas
+224,KINDER MAXI X10,1581.98,1647.9,Golosinas
+157,LA YAPA X36,314.74,327.85,Golosinas
+131,LENGUETAZO X32,256.69,267.39,Golosinas
+232,MENTHOPLUS X12,528.94,550.97,Golosinas
+120,MENTITAS BOMBOM FELFORT X30,617.7,643.44,Golosinas
+207,MONEDAS PIRATAS X60,428.76,446.62,Golosinas
+130,PICO DULCE X48,211.97,220.8,Golosinas
+83,RHODESIA X36,894.85,932.14,Golosinas
+189,ROCKLETS 20 GRS X24,708.58,738.1,Golosinas
+190,ROCKLETS 40 GRS X18,1346.08,1402.16,Golosinas
+402,TIC TAC X12,1015.75,1058.08,Golosinas
+82,TITA X36,813.4,847.29,Golosinas
+119,TIVIS X20,1059.73,1103.89,Golosinas
+173,TOPLINE X16,777.17,809.55,Golosinas
+141,TURRON MISKY X50,210.62,219.4,Golosinas
+451,FLYNN PAFF TUTTI FRUTI X70,114.56,119.34,Golosinas
+210,NAIPES CASINO X40,2238.46,2331.73,Varios
+211,NAIPES CASINO X50,2642.52,2752.62,Varios
+67,CABLE ROYALLCELL IPHONE USB-LIGHTNING 1M,2040.0,2125.0,Electronica
+27,CABLE KABER TIPO-C MALLADO 1M,2040.0,2125.0,Electronica
+238,CARGADOR IPHONE 14 PRO LIGHTING/TIPO C,7488.0,7800.0,Electronica
+64,CARGADOR IBEK V8 USB 4.8A,5916.0,6162.5,Electronica
+245,CARGADOR PARA AUTO KOSMOS,7680.0,8000.0,Electronica
+239,CARGADOR ROYALCELL TIPO C 5.0A,4998.0,5206.25,Electronica
+159,LAMPARA CANDELA LED 7W FRIA,804.26,837.78,Electronica
+160,LAMPARA CANDELA LED 10W FRIA,888.38,925.4,Electronica
+161,LAMPARA CANDELA LED 12W FRIA,1010.62,1052.72,Electronica
+162,LAMPARA CANDELA LED 15W FRIA,1235.52,1287.0,Electronica
+240,LAMPARA CANDELA LED HIGHPOWER 20W FRIA,2475.58,2578.72,Electronica
+241,LAMPARA CANDELA LED HIGHPOWER 30W FRIA,3053.66,3180.9,Electronica
+242,LAMPARA CANDELA LED HIGHPOWER 40W FRIA,4329.23,4509.61,Electronica
+243,LAMPARA CANDELA LED HIGHPOWER 50W FRIA,6180.42,6437.94,Electronica
+116,LASER 3 EN 1 LINTERNITA X24,1728.0,1800.0,Electronica
+43,ANILINA COLIBRI NEGRA,2300.34,2396.19,Varios
+44,ANILINA COLIBRI AZUL MARINO,2300.34,2396.19,Varios
+258,ANILINA COLIBRI EXHIBIDOR X90,2300.5,2396.35,Varios
+21,AZUFRE GONZALITO 20X5,984.04,1025.04,Varios
+415,BANDITAS ELASTICAS X50G,2150.4,2240.0,Varios
+379,BIC AZUL LAPICERA X50,772.08,804.25,Varios
+380,BIC NEGRA LAPICERA X50,772.08,804.25,Varios
+91,BOLSA PARA VINO X12,1440.0,1500.0,Varios
+197,BOLSAS PARA REGALO MEDIANA 1602,1382.4,1440.0,Varios
+198,BOLSAS PARA REGALO GRANDE 1603,1689.6,1760.0,Varios
+199,BOLSAS PARA REGALO EXTRA GRANDE 1604,2150.4,2240.0,Varios
+206,CINTA CONFITERA CABLEFIX X6,632.94,659.31,Varios
+85,CINTA EMBALAR MARRON CABLEFIX X100M,2610.88,2719.66,Varios
+87,CINTA EMBALAR TRANSPARENTE CABLEFIX X100M,2610.88,2719.66,Varios
+118,CINTA EMBALAR TRANSPARENTE CABLEFIX X40M,1264.79,1317.49,Varios
+196,PELAPAPAS IMPORTADO METAL EN BLISTER,2592.0,2700.0,Varios
+143,SACACORCHO DESTAPADOR VINO,1728.0,1800.0,Varios
+22,VELAS RELIEVE BLANCAS X25,998.4,1040.0,Varios
+344,VELAS RELIEVE ROJAS X25,1075.2,1120.0,Varios
+468,GUANTE LATEX X100,8880.0,9250.0,Varios
+472,GUANTE NITRILO NEGRO X100,9102.0,9481.25,Varios
+485,PALILLO BROCHETE MADERA X80,1260.0,1312.5,Varios
+201,ABRELATAS ECONOMICO,1620.0,1687.5,Varios
+28,ACTRON 400 X20,322.48,335.91,Medicamentos
+29,ACTRON 600 X20,808.98,842.69,Medicamentos
+399,ACTRON MIGRA CAPS BLANDAS X10,428.39,446.24,Medicamentos
+111,ACTRON MUJER 400MG X10,341.4,355.62,Medicamentos
+99,ALIKAL LIMON X30,772.37,804.55,Medicamentos
+98,ALIKAL NARANJA X30,772.37,804.55,Medicamentos
+18,ALIKAL X30,772.37,804.55,Medicamentos
+110,AMOXIDAL 500MG X8,3166.76,3298.71,Medicamentos
+100,ANAFLEX PLUS X16,1008.31,1050.33,Medicamentos
+105,ASPIRINETA X98,869.95,906.2,Medicamentos
+102,BAYA C LIMON X24,1153.5,1201.56,Medicamentos
+184,BAYASPIRINA FORTE X20,255.34,265.98,Medicamentos
+95,BAYASPIRINA X30,196.84,205.04,Medicamentos
+179,BUSCAPINA PERLAS TIRA X10,576.54,600.56,Medicamentos
+19,BUSCAPINA DUO X60,777.85,810.26,Medicamentos
+185,CAFIASPIRINA PLUS X20,286.67,298.61,Medicamentos
+96,CAFIASPIRINA X30,226.84,236.29,Medicamentos
+97,DICLOFENAC X75MG TIRA X15,577.61,601.67,Medicamentos
+108,IBUEVANOL FORTE X20,282.56,294.34,Medicamentos
+183,IBUEVANOL MAX X20,349.66,364.23,Medicamentos
+109,IBUEVANOL PLUS X20,242.2,252.29,Medicamentos
+92,IBUEVANOL RAPIDA ACCION X20,219.65,228.8,Medicamentos
+106,IBUPROFENO FABOGESIC 400MG X10,58.45,60.89,Medicamentos
+103,IBUPROFENO FABOGESIC 600MG X10,80.33,83.67,Medicamentos
+123,KETEROLAC 20MG X10,610.42,635.85,Medicamentos
+225,KETEROLAC SUBLINGUAL 10MG TIRA X10,549.44,572.34,Medicamentos
+114,LORATADINA VANNIER 10MG X10,64.88,67.59,Medicamentos
+94,MIGRAL COMUN X10,480.9,500.94,Medicamentos
+180,NEXT GRIPE X20,321.46,334.85,Medicamentos
+115,OMEPRAZOL X20MG X14,566.69,590.3,Medicamentos
+134,PASTILLA DE CARBON X10,1674.19,1743.95,Medicamentos
+31,QURAPLUS X20,455.33,474.3,Medicamentos
+72,SERTAL COMPUESTO X10,786.37,819.14,Medicamentos
+226,SERTAL PERLAS X10,559.54,582.85,Medicamentos
+107,TAFIROL 1G X8,203.35,211.83,Medicamentos
+58,TAFIROL 500MG TIRA X10,176.34,183.69,Medicamentos
+124,TAFIROL DUO X10,3402.37,3544.14,Medicamentos
+59,TAFIROL FORTE 650MG TIRA X10,200.38,208.72,Medicamentos
+227,TAFIROL MIGRA X10,552.0,575.0,Medicamentos
+60,TAFIROL PLUS X8,306.16,318.91,Medicamentos
+182,TAFIROL RESACA X8,527.81,549.8,Medicamentos
+342,UVASAL NARANJA X30,448.85,467.55,Medicamentos
+30,UVASAL X30,448.85,467.55,Medicamentos
+458,AGUA OXIGENADA MEDICINAL X100CM3,638.4,665.0,Medicamentos
+477,GASA MEDICINAL SYRA X10,3781.06,3938.6,Medicamentos`;
+
+function parseCSV(text){
+  var lines = text.trim().split("\n");
+  var headers = lines[0].split(",");
+  return lines.slice(1).map(function(l){
+    var parts = l.split(",");
+    return {
+      codigo: parts[0],
+      nombre: parts[1],
+      precioClientes: parseFloat(parts[2]),
+      precioPatagonia: parseFloat(parts[3]),
+      categoria: parts[4]||""
+    };
+  });
+}
+
+function addLog(msg, type){
+  var log = document.getElementById("log");
+  var span = document.createElement("span");
+  span.className = type||"";
+  span.textContent = msg + "\n";
+  log.appendChild(span);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function iniciarImportacion(){
+  var empKey = document.getElementById("emp-key").value.trim();
+  if(!empKey){ alert("Ingresá el código de empresa"); return; }
+
+  var pctCli = parseFloat(document.getElementById("pct-cli").value)||20;
+  var pctPat = parseFloat(document.getElementById("pct-pat").value)||25;
+
+  // Find the Firebase key for this empresa (search by codigo)
+  addLog("Buscando empresa en Firebase...", "info");
+  document.getElementById("card-progress").style.display = "block";
+  document.getElementById("btn-import").disabled = true;
+
+  var r = await fetch(FB + "/empresas.json");
+  var empresas = await r.json();
+  var fbEmpKey = null;
+  if(empresas){
+    Object.keys(empresas).forEach(function(k){
+      if(empresas[k].codigo === empKey) fbEmpKey = k;
+    });
+  }
+  if(!fbEmpKey){
+    addLog("ERROR: No se encontró la empresa con código '" + empKey + "'", "err");
+    addLog("Verificá el código en el panel admin", "err");
+    document.getElementById("btn-import").disabled = false;
+    return;
+  }
+  addLog("Empresa encontrada: " + (empresas[fbEmpKey].nombre||fbEmpKey), "ok");
+
+  var productos = parseCSV(CSV);
+  var total = productos.length;
+  var ok = 0, err = 0;
+
+  document.getElementById("cnt-total").textContent = total;
+  addLog("Iniciando importación de " + total + " productos...", "info");
+
+  // Process in batches of 10
+  for(var i=0; i<productos.length; i++){
+    var p = productos[i];
+    var base = p.precioClientes / 1.20; // recover base from CSV
+    var prod = {
+      codigo: p.codigo,
+      nombre: p.nombre,
+      precioBase: Math.round(base*100)/100,
+      precioClientes: Math.round(base*(1+pctCli/100)*100)/100,
+      precioPatagonia: Math.round(base*(1+pctPat/100)*100)/100,
+      categoria: p.categoria,
+      actualizado: new Date().toISOString()
+    };
+    try{
+      var res = await fetch(FB + "/empresas/" + fbEmpKey + "/productos.json", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(prod)
+      });
+      if(res.ok){
+        ok++;
+        if(ok % 20 === 0) addLog("Importados " + ok + "/" + total + "...", "info");
+      } else {
+        err++;
+        addLog("ERROR en " + p.nombre, "err");
+      }
+    } catch(e){
+      err++;
+      addLog("ERROR: " + e.message, "err");
+    }
+    document.getElementById("cnt-ok").textContent = ok;
+    document.getElementById("cnt-err").textContent = err;
+    document.getElementById("progress-fill").style.width = Math.round((i+1)/total*100) + "%";
+  }
+
+  // Generate and save stockCSV for client apps
+  var csvLines = ["id,nombre,precio_clientes,precio_patagonia"];
+  productos.forEach(function(p){
+    var base = p.precioClientes / 1.20;
+    csvLines.push([
+      p.codigo, p.nombre,
+      Math.round(base*(1+pctCli/100)*100)/100,
+      Math.round(base*(1+pctPat/100)*100)/100
+    ].join(","));
+  });
+  await fetch(FB + "/empresas/" + fbEmpKey + ".json", {
+    method: "PATCH",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      stockCSV: csvLines.join("\n"),
+      margenCli: pctCli,
+      margenPat: pctPat
+    })
+  });
+
+  addLog("\n✅ Importación completa: " + ok + " productos subidos, " + err + " errores.", "ok");
+  addLog("✅ CSV sincronizado para app cliente.", "ok");
+  document.getElementById("btn-done").style.display = "block";
+}
+</script>
+</body>
+</html>
